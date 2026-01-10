@@ -1,0 +1,52 @@
+name: Build Whisper (Release)
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        include:
+          - os: windows-11-arm
+            ARTIFACT_PREFIX: winarm64
+            MSYS2_SYS: CLANGARM64
+          - os: windows-latest
+            ARTIFACT_PREFIX: win64
+            MSYS2_SYS: UCRT64
+    steps:
+      - name: 'Configure git: core.autocrlf, core.eol'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v6
+        with:
+          ref: 2eeeba56e9edd762b4b38467bab96c2517163158
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{matrix.MSYS2_SYS}}
+          update: true
+          pacboy: >-
+            cmake:p
+            ninja:p
+            toolchain:p
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          cmake -B build -S .
+          cmake --build build --config Release
+      - name: Copy files
+        shell: msys2 {0}
+        run: |
+          mkdir upload
+          cp build/bin/whisper-cli.exe upload/whisper.exe
+          cp LICENSE upload/license.md
+          for i in $(ldd upload/whisper.exe | cut -d '>' -f 2 | grep $MSYSTEM_PREFIX/bin | awk '{print $1}'); do [ -f "${i}" ] && cp "${i}" upload; done
+          strip upload/*.exe
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: whisper-git-${{matrix.ARTIFACT_PREFIX}}-${{github.sha}}
+          path: upload
+          if-no-files-found: error
+          retention-days: 1
